@@ -14,6 +14,7 @@ from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.vector_stores.chroma import ChromaVectorStore
 import chromadb
+import httpx  # Agregar httpx para consultas directas a la API de Ollama
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -38,14 +39,52 @@ class RAGService:
         self.docs_dir.mkdir(exist_ok=True, parents=True)
         self.persist_dir.mkdir(exist_ok=True, parents=True)
         
+        # Definir modelo predeterminado - cambiado de llama2 a mistral
+        self.default_model = self._get_available_model()
+        logger.info(f"Usando modelo predeterminado: {self.default_model}")
+        
         # Configurar LLM y embedding
-        Settings.llm = Ollama(model="llama2", request_timeout=120.0)
+        Settings.llm = Ollama(model=self.default_model, request_timeout=120.0)
         # Usar embeddings de HuggingFace (gratuito y local)
         Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
         
         # Inicializar ChromaDB y el índice
         self._init_chroma_and_index()
         
+    def _get_available_model(self) -> str:
+        """
+        Obtiene un modelo disponible en Ollama.
+        
+        Returns:
+            Nombre del primer modelo disponible, o "mistral" como fallback.
+        """
+        preferred_models = ["mistral", "llama2", "gemma", "phi", "orca-mini"]
+        
+        try:
+            # Consulta la API directamente
+            response = httpx.get("http://localhost:11434/api/tags", timeout=5.0)
+            if response.status_code == 200:
+                available_models = response.json().get("models", [])
+                logger.info(f"Modelos disponibles en Ollama: {[model['name'] for model in available_models]}")
+                
+                # Si hay modelos disponibles, usa el primero que coincida con los preferidos
+                if available_models:
+                    for preferred in preferred_models:
+                        for model in available_models:
+                            if preferred in model["name"].lower():
+                                return model["name"]
+                    
+                    # Si ninguno coincide con los preferidos, usa el primero disponible
+                    return available_models[0]["name"]
+            
+            # Si no se pudo obtener la lista o está vacía
+            logger.warning("No se pudo obtener la lista de modelos o está vacía. Usando 'mistral' como modelo predeterminado")
+            return "mistral"
+        
+        except Exception as e:
+            logger.error(f"Error al consultar modelos disponibles: {str(e)}")
+            return "mistral"  # Modelo de respaldo
+    
     def _init_chroma_and_index(self):
         """Inicializa ChromaDB y el índice vectorial."""
         try:
@@ -133,17 +172,21 @@ class RAGService:
         except Exception as e:
             return {"success": False, "message": f"Error al añadir documentos: {str(e)}"}
     
-    async def query(self, query_text: str, model: str = "llama2") -> Dict:
+    async def query(self, query_text: str, model: str = None) -> Dict:
         """
         Consulta la base de conocimientos.
         
         Args:
             query_text: Texto de la consulta.
-            model: Modelo a utilizar para la respuesta (por defecto llama2).
+            model: Modelo a utilizar para la respuesta.
             
         Returns:
             Un diccionario con los resultados y contexto de la consulta.
         """
+        # Usar modelo predeterminado si no se especificó
+        if model is None:
+            model = self.default_model
+            
         if not self.index:
             logger.error("Índice no disponible para consulta")
             return {
@@ -214,17 +257,21 @@ class RAGService:
                 "response": "Se produjo un error al procesar su consulta."
             }
 
-    async def stream_query(self, query_text: str, model: str = "llama2") -> AsyncGenerator[str, None]:
+    async def stream_query(self, query_text: str, model: str = None) -> AsyncGenerator[str, None]:
         """
         Consulta la base de conocimientos con streaming de respuesta.
         
         Args:
             query_text: Texto de la consulta.
-            model: Modelo a utilizar para la respuesta (por defecto llama2).
+            model: Modelo a utilizar para la respuesta.
             
         Yields:
             Fragmentos de texto de la respuesta generada.
         """
+        # Usar modelo predeterminado si no se especificó
+        if model is None:
+            model = self.default_model
+            
         if not self.index:
             logger.error("Índice no disponible para consulta streaming")
             yield "Error: El índice no está disponible. No se pudo acceder a la base de conocimientos."
@@ -265,7 +312,6 @@ Consulta: {query_text}
 Respuesta:"""
             
             # URL para Ollama
-            import httpx
             url = "http://localhost:11434/api/generate"
             
             # Hacer la solicitud con streaming

@@ -30,12 +30,12 @@ app.add_middleware(
 
 class Query(BaseModel):
     prompt: str
-    model: str = "llama2"
+    model: str = "mistral"
     stream: Optional[bool] = True  # Default to streaming
 
 class RAGQuery(BaseModel):
     query: str
-    model: str = "llama2"
+    model: str = "mistral"
     use_rag: bool = True
 
 # Directorio temporal para almacenar archivos subidos
