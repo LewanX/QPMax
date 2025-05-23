@@ -153,6 +153,11 @@ async def rag_query(query: RAGQuery):
             "response": "Se produjo un error al procesar su consulta."
         }, status_code=500)
 
+# Función para generar un stream de error
+async def create_error_stream(error_message: str):
+    """Helper function para crear un stream de error."""
+    yield f"Error: {error_message}"
+
 # Nuevo endpoint para streaming RAG
 @app.post("/api/rag/stream")
 async def stream_rag_query(query: RAGQuery):
@@ -177,10 +182,12 @@ async def stream_rag_query(query: RAGQuery):
                 media_type="text/plain"
             )
     except Exception as e:
-        # En caso de error, devolver mensaje de error como stream
-        async def error_stream():
-            yield f"Error: {str(e)}"
-        return StreamingResponse(error_stream(), media_type="text/plain")
+        # Usar la función helper con el mensaje de error
+        error_message = str(e)
+        return StreamingResponse(
+            create_error_stream(error_message),
+            media_type="text/plain"
+        )
 
 @app.post("/api/models/download")
 async def download_model(llm_name: str = Body(..., embed=True)):
