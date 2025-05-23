@@ -1,6 +1,7 @@
 import json
 import os
 import shutil
+import logging  # Agregar importación de logging
 from fastapi import FastAPI, HTTPException, Body, UploadFile, File, Form, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +12,10 @@ from pathlib import Path
 
 # Importar el servicio RAG
 from rag_service import get_rag_service
+
+# Configurar logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -118,12 +123,14 @@ async def rag_query(query: RAGQuery):
     try:
         if query.use_rag:
             # Usar el servicio RAG para obtener una respuesta basada en la base de conocimientos
+            logger.info(f"Consultando RAG con: {query.query}")
             rag_service = get_rag_service()
             result = await rag_service.query(query.query, model=query.model)
             
             if result["success"]:
                 return JSONResponse(result)
             else:
+                logger.warning(f"RAG falló, usando fallback directo: {result.get('message', 'No hay mensaje de error')}")
                 # Si RAG falla, intentamos con el modelo directo
                 response = await get_generated_text(query.query, query.model)
                 result = {
@@ -137,6 +144,7 @@ async def rag_query(query: RAGQuery):
                 return JSONResponse(result)
         else:
             # Usar directamente el modelo sin RAG
+            logger.info(f"Usando modelo directo sin RAG: {query.query}")
             response = await get_generated_text(query.query, query.model)
             return JSONResponse({
                 "success": True,
@@ -146,6 +154,7 @@ async def rag_query(query: RAGQuery):
                 "sources": []
             })
     except Exception as e:
+        logger.error(f"Error en endpoint rag_query: {str(e)}", exc_info=True)
         return JSONResponse({
             "success": False,
             "message": f"Error procesando la consulta: {str(e)}",
