@@ -39,7 +39,7 @@ class RAGService:
         self.persist_dir.mkdir(exist_ok=True, parents=True)
         
         # Configurar LLM y embedding
-        Settings.llm = Ollama(model="llama2", request_timeout=120.0)
+        Settings.llm = Ollama(model="llama3.2", request_timeout=120.0)
         # Usar embeddings de HuggingFace (gratuito y local)
         Settings.embed_model = HuggingFaceEmbedding(model_name="BAAI/bge-small-en-v1.5")
         
