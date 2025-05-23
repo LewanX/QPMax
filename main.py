@@ -198,6 +198,98 @@ async def stream_rag_query(query: RAGQuery):
             media_type="text/plain"
         )
 
+# Nuevo endpoint para streaming RAG con fuentes
+@app.post("/api/rag/streamWithDetails")
+async def stream_rag_query(query: RAGQuery):
+    """
+    Consulta la base de conocimientos utilizando RAG y devuelve una respuesta en streaming.
+    
+    Si use_rag es verdadero, consulta la base de conocimientos con streaming incluyendo fuentes.
+    Si use_rag es falso, usa directamente el modelo con streaming.
+    
+    El formato de respuesta incluye un objeto JSON inicial con metadatos y fuentes,
+    seguido de los chunks de texto de la respuesta.
+    """
+    try:
+        if query.use_rag:
+            # Usar el servicio RAG en modo streaming
+            rag_service = get_rag_service()
+            
+            # Primero obtener las fuentes (no en streaming) para incluirlas en la respuesta
+            rag_result = await rag_service.query(query.query, model=query.model)
+            
+            # Preparar el generador que combina las fuentes con el streaming
+            async def combined_stream():
+                try:
+                    # Primero enviamos un objeto JSON con los metadatos y fuentes
+                    metadata_json = json.dumps({
+                        "success": rag_result.get("success", False),
+                        "query": rag_result.get("query", query.query),
+                        "has_sources": rag_result.get("has_sources", False),
+                        "sources": rag_result.get("sources", []),
+                        "metadata": True  # Indicador de que este es el mensaje de metadatos
+                    })
+                    yield metadata_json + "\n"
+                    
+                    # Si hubo un error en la consulta RAG, terminar después de enviar los metadatos
+                    if not rag_result.get("success", False):
+                        error_msg = rag_result.get("message", "Error desconocido en la consulta RAG")
+                        yield f"Error: {error_msg}"
+                        return
+                    
+                    # Luego enviamos el contenido del streaming
+                    async for chunk in rag_service.stream_query(query.query, model=query.model):
+                        yield chunk
+                except Exception as e:
+                    logger.error(f"Error en el streaming combinado: {str(e)}", exc_info=True)
+                    yield f"Error durante el streaming: {str(e)}"
+            
+            return StreamingResponse(
+                combined_stream(),
+                media_type="text/plain"
+            )
+        else:
+            # Para uso sin RAG, enviar un objeto JSON vacío similar para mantener consistencia
+            async def non_rag_stream():
+                # Primero enviamos un JSON con metadata vacía pero consistente
+                metadata_json = json.dumps({
+                    "success": True,
+                    "query": query.query,
+                    "has_sources": False,
+                    "sources": [],
+                    "metadata": True
+                })
+                yield metadata_json + "\n"
+                
+                # Luego el stream normal
+                async for chunk in stream_generated_text(query.query, query.model):
+                    yield chunk
+            
+            return StreamingResponse(
+                non_rag_stream(),
+                media_type="text/plain"
+            )
+    except Exception as e:
+        logger.error(f"Error en endpoint stream_rag_query: {str(e)}", exc_info=True)
+        
+        # Crear un stream de error que también incluye el formato de metadatos
+        async def error_stream():
+            metadata_json = json.dumps({
+                "success": False,
+                "query": query.query,
+                "has_sources": False,
+                "sources": [],
+                "message": str(e),
+                "metadata": True
+            })
+            yield metadata_json + "\n"
+            yield f"Error: {str(e)}"
+        
+        return StreamingResponse(
+            error_stream(),
+            media_type="text/plain"
+        )
+
 @app.post("/api/models/download")
 async def download_model(llm_name: str = Body(..., embed=True)):
     try:
