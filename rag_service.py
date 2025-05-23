@@ -70,11 +70,9 @@ class RAGService:
     def _create_index_with_advanced_settings(self, documents, vector_store):
         """Crea un índice con configuraciones avanzadas para mejorar la recuperación."""
         from llama_index.core.node_parser import SimpleNodeParser
-        from llama_index.core import Settings
         
         # Configurar el parser de nodos con superposición
-        settings = Settings()
-        settings.node_parser = SimpleNodeParser.from_defaults(
+        Settings.node_parser = SimpleNodeParser.from_defaults(
             chunk_size=512,     # Tamaño de chunks más pequeño para precisión
             chunk_overlap=50    # Superposición para mantener contexto
         )
